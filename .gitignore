@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Secrets
+.env
+
+# ShadowShip runtime output
+.shadowship/
+reports/
+
+# OS
+.DS_Store

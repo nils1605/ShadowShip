@@ -1,0 +1,22 @@
+app:
+  start_command: python -m uvicorn demo_app.main:app --port {port}
+  health_path: /health
+  baseline_port: 8001
+  candidate_port: 8002
+  startup_timeout_seconds: 20.0
+diff:
+  ignore_fields:
+  - id
+  - cart_id
+  - created_at
+  - timestamp
+  latency_threshold_pct: 50.0
+judge:
+  promote_threshold: 80
+llm:
+  enabled: true
+  model: claude-sonnet-5-5
+journeys_dir: journeys
+reports_dir: reports
+generated_tests_dir: tests/generated
+worktrees_dir: .shadowship
