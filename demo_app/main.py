@@ -81,7 +81,8 @@ def checkout(request: Checkout) -> dict:
         discount = pricing.discount_for(request.discount_code, subtotal)
     except pricing.InvalidDiscountCode:
         raise HTTPException(status_code=400, detail="Invalid discount code")
-    tax = pricing.tax_on(subtotal)
+    discounted = pricing.money(subtotal - discount)
+    tax = pricing.tax_on(discounted)
 
     return {
         "cart_id": request.cart_id,
@@ -89,5 +90,5 @@ def checkout(request: Checkout) -> dict:
         "subtotal": subtotal,
         "discount": discount,
         "tax": tax,
-        "total": pricing.money(subtotal - discount + tax),
+        "total": pricing.money(discounted + tax),
     }
