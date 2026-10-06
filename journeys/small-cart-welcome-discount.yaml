@@ -1,0 +1,20 @@
+name: small-cart-welcome-discount
+description: A new customer uses the existing WELCOME5 code on a small order.
+steps:
+  - name: create cart
+    method: POST
+    path: /cart
+    capture:
+      cart_id: id
+  - name: add t-shirt
+    method: POST
+    path: /cart/{cart_id}/items
+    body: {product_id: tshirt, quantity: 1}
+  - name: add mug
+    method: POST
+    path: /cart/{cart_id}/items
+    body: {product_id: mug, quantity: 1}
+  - name: checkout with WELCOME5
+    method: POST
+    path: /checkout
+    body: {cart_id: "{cart_id}", discount_code: WELCOME5}

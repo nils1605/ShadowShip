@@ -18,7 +18,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+# fastapi/uvicorn are only needed to run the demo_app that ShadowShip rehearses.
+dev = ["pytest>=8", "fastapi>=0.110", "uvicorn>=0.29"]
 
 [project.scripts]
 shadowship = "shadowship.cli:app"
@@ -27,4 +28,4 @@ shadowship = "shadowship.cli:app"
 include = ["shadowship*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "demo_app/tests"]

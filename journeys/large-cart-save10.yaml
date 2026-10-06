@@ -1,0 +1,32 @@
+name: large-cart-save10
+description: A customer fills a large cart and uses the new SAVE10 code (10% off).
+steps:
+  - name: create cart
+    method: POST
+    path: /cart
+    capture:
+      cart_id: id
+  - name: add mugs
+    method: POST
+    path: /cart/{cart_id}/items
+    body: {product_id: mug, quantity: 2}
+  - name: add t-shirt
+    method: POST
+    path: /cart/{cart_id}/items
+    body: {product_id: tshirt, quantity: 1}
+  - name: add hoodie
+    method: POST
+    path: /cart/{cart_id}/items
+    body: {product_id: hoodie, quantity: 1}
+  - name: add notebooks
+    method: POST
+    path: /cart/{cart_id}/items
+    body: {product_id: notebook, quantity: 2}
+  - name: add stickers
+    method: POST
+    path: /cart/{cart_id}/items
+    body: {product_id: stickers, quantity: 3}
+  - name: checkout with SAVE10
+    method: POST
+    path: /checkout
+    body: {cart_id: "{cart_id}", discount_code: SAVE10}

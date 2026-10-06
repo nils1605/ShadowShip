@@ -1,0 +1,16 @@
+name: small-cart-checkout
+description: A customer buys two mugs without a discount code.
+steps:
+  - name: create cart
+    method: POST
+    path: /cart
+    capture:
+      cart_id: id
+  - name: add mugs
+    method: POST
+    path: /cart/{cart_id}/items
+    body: {product_id: mug, quantity: 2}
+  - name: checkout
+    method: POST
+    path: /checkout
+    body: {cart_id: "{cart_id}"}

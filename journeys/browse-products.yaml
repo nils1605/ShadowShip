@@ -1,0 +1,9 @@
+name: browse-products
+description: A visitor checks the shop is up and browses the catalog.
+steps:
+  - name: health check
+    method: GET
+    path: /health
+  - name: list products
+    method: GET
+    path: /products
