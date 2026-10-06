@@ -20,6 +20,11 @@ def test_welcome5_needs_minimum_subtotal():
     assert pricing.discount_for("WELCOME5", 15.00) == 0.0
 
 
+def test_save10_takes_ten_percent_off():
+    assert pricing.discount_for("SAVE10", 50.00) == 5.00
+    assert pricing.discount_for("SAVE10", 109.00) == 10.90
+
+
 def test_unknown_code_is_rejected():
     with pytest.raises(pricing.InvalidDiscountCode):
         pricing.discount_for("BOGUS", 50.00)

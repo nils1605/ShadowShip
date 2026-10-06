@@ -7,6 +7,7 @@ TAX_RATE = 0.08
 # code -> (kind, amount, minimum subtotal)
 DISCOUNT_CODES = {
     "WELCOME5": ("fixed", 5.00, 20.00),
+    "SAVE10": ("percent", 10, 0.00),
 }
 
 
