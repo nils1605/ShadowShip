@@ -12,9 +12,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from shadowship import __version__
+from shadowship.agents.behavior_diff import compare_runs
 from shadowship.agents.rehearsal import RehearsalError, run_rehearsal, save_result
 from shadowship.config import DEFAULT_CONFIG_PATH, ConfigError, default_config_yaml, load_config
-from shadowship.models import JourneyRun, RehearsalResult
+from shadowship.models import BehaviorDifference, Classification, JourneyRun, RehearsalResult
 
 app = typer.Typer(
     help="ShadowShip: agents that rehearse your release before it ships.",
@@ -67,8 +68,43 @@ def rehearse(
         raise typer.Exit(code=1)
 
     console.print(_rehearsal_table(result))
-    saved = save_result(result, config.reports_dir, base, head)
+
+    differences = compare_runs(result, config.diff)
+    console.print(_differences_table(differences))
+
+    saved = save_result(result, config.reports_dir, base, head, differences)
     console.print(f"Raw results saved to [bold]{saved}[/bold]")
+
+
+CLASSIFICATION_STYLE = {
+    Classification.INTENDED: "green",
+    Classification.SUSPICIOUS: "yellow",
+    Classification.REGRESSION: "bold red",
+}
+
+
+def _short(value: object, width: int = 30) -> str:
+    text = str(value)
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def _differences_table(differences: list[BehaviorDifference]) -> Table | str:
+    if not differences:
+        return "[green]No behavior differences between baseline and candidate.[/green]"
+    table = Table(title="Behavior differences")
+    table.add_column("Journey")
+    table.add_column("Step")
+    table.add_column("Field")
+    table.add_column("Baseline", justify="right")
+    table.add_column("Candidate", justify="right")
+    table.add_column("Class")
+    for d in differences:
+        style = CLASSIFICATION_STYLE[d.classification]
+        table.add_row(
+            d.journey, d.step, d.field, _short(d.baseline), _short(d.candidate),
+            f"[{style}]{d.classification.value}[/{style}]",
+        )
+    return table
 
 
 def _run_summary(run: JourneyRun) -> str:

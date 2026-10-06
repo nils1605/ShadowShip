@@ -25,7 +25,7 @@ import httpx
 import yaml
 
 from shadowship.config import Config
-from shadowship.models import Journey, JourneyRun, JourneyStep, RehearsalResult, StepResult
+from shadowship.models import BehaviorDifference, Journey, JourneyRun, JourneyStep, RehearsalResult, StepResult
 
 BASELINE = "baseline"
 CANDIDATE = "candidate"
@@ -231,11 +231,19 @@ def run_rehearsal(
     return RehearsalResult(journey_runs_baseline=runs[BASELINE], journey_runs_candidate=runs[CANDIDATE])
 
 
-def save_result(result: RehearsalResult, reports_dir: str | Path, base: str, head: str) -> Path:
-    """Write the raw rehearsal result as JSON to reports/rehearsal-<timestamp>.json."""
+def save_result(
+    result: RehearsalResult,
+    reports_dir: str | Path,
+    base: str,
+    head: str,
+    differences: list[BehaviorDifference] | None = None,
+) -> Path:
+    """Write the raw rehearsal result (and differences, if given) as JSON to reports/rehearsal-<timestamp>.json."""
     reports_dir = Path(reports_dir)
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"rehearsal-{datetime.now():%Y%m%d-%H%M%S}.json"
     payload = {"base": base, "head": head, **asdict(result)}
+    if differences is not None:
+        payload["differences"] = [asdict(difference) for difference in differences]
     path.write_text(json.dumps(payload, indent=2))
     return path

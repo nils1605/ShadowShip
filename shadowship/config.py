@@ -35,6 +35,8 @@ class DiffConfig:
     # Fields whose values change on every run (ids, timestamps) and must not count as differences.
     ignore_fields: list[str] = field(default_factory=lambda: ["id", "cart_id", "created_at", "timestamp"])
     latency_threshold_pct: float = 50.0
+    # Ignore slowdowns smaller than this; a 2 ms -> 4 ms jump is +100% but just noise.
+    latency_min_increase_ms: float = 100.0
 
 
 @dataclass

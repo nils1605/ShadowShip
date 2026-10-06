@@ -11,6 +11,7 @@ diff:
   - created_at
   - timestamp
   latency_threshold_pct: 50.0
+  latency_min_increase_ms: 100.0
 judge:
   promote_threshold: 80
 llm:
