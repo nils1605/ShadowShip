@@ -64,38 +64,40 @@ def rehearse(
         console.print(f"[red]Config error:[/red] {exc}")
         raise typer.Exit(code=2)
 
+    journeys = load_journeys(config.journeys_dir)
+    llm = LLM(config.llm)
     console.print(
         Panel.fit(
-            f"[bold]Baseline:[/bold] {base}\n[bold]Candidate:[/bold] {head}\n"
-            f"[bold]Journeys:[/bold] {config.journeys_dir}/\n"
-            f"[bold]Promote threshold:[/bold] {config.judge.promote_threshold}",
-            title="ShadowShip release rehearsal",
+            f"[bold]Baseline[/bold]  {base}\n[bold]Candidate[/bold] {head}\n"
+            f"[dim]{len(journeys)} journeys · promote threshold {config.judge.promote_threshold}[/dim]",
+            title="🚢 ShadowShip release rehearsal",
         )
     )
 
-    journeys = load_journeys(config.journeys_dir)
-    llm = LLM(config.llm)
+    _stage(1, "Impact Scout", "what could this change break?")
     impact = None
     try:
         with console.status("Mapping the blast radius..."):
             impact = scout(base, head, journeys=journeys, llm=llm)
         console.print(_impact_panel(impact))
     except GitError as exc:
-        console.print(f"[yellow]Impact Scout skipped:[/yellow] {exc}")
+        console.print(f"[yellow]Skipped:[/yellow] {exc}")
 
+    _stage(2, "Rehearsal", "run both versions side by side and replay journeys")
     try:
         with console.status("Rehearsing...") as status:
             result = run_rehearsal(base, head, config, on_progress=lambda message: status.update(message))
     except RehearsalError as exc:
         console.print(f"[red]Rehearsal failed:[/red] {exc}")
         raise typer.Exit(code=1)
-
     console.print(_rehearsal_table(result, impact))
 
+    _stage(3, "Behavior Diff", "what behaves differently, and is it intended?")
     with console.status("Comparing behavior..."):
         differences = compare_runs(result, config.diff, impact, llm)
     console.print(_differences_table(differences))
 
+    _stage(4, "Release Judge", "promote or block?")
     timestamp = datetime.now()
     save_result(result, config.reports_dir, base, head, differences, timestamp)
     with console.status("Judging the release..."):
@@ -105,6 +107,11 @@ def rehearse(
     console.print(_llm_status(llm))
     if decision.verdict == Verdict.BLOCK:
         raise typer.Exit(code=1)
+
+
+def _stage(number: int, name: str, question: str) -> None:
+    console.print()
+    console.rule(f"[bold]{'①②③④'[number - 1]} {name}[/bold] [dim]· {question}[/dim]", align="left")
 
 
 def _llm_status(llm: LLM) -> str:
@@ -125,7 +132,7 @@ def _impact_panel(impact: ImpactReport) -> Panel:
     ]
     lines += [f"[bold]Intended:[/bold] {change}" for change in impact.intended_changes]
     lines += [f"[yellow]⚠ {hint}[/yellow]" for hint in impact.risk_hints]
-    return Panel("\n".join(lines), title="Impact Scout: blast radius", border_style="cyan")
+    return Panel("\n".join(lines), title="Blast radius", border_style="cyan")
 
 
 def _verdict_panel(decision: JudgeDecision) -> Panel:
@@ -145,7 +152,7 @@ def _verdict_panel(decision: JudgeDecision) -> Panel:
         lines.append(f"Generated test: [bold]{path}[/bold]")
     if decision.rollback_plan:
         lines.append("Rollback plan: see the report")
-    return Panel("\n".join(lines), title="Release Judge", border_style=color)
+    return Panel("\n".join(lines), title="Verdict", border_style=color)
 
 
 CLASSIFICATION_STYLE = {
@@ -163,18 +170,18 @@ def _short(value: object, width: int = 30) -> str:
 def _differences_table(differences: list[BehaviorDifference]) -> Table | str:
     if not differences:
         return "[green]No behavior differences between baseline and candidate.[/green]"
-    table = Table(title="Behavior differences")
-    table.add_column("Journey")
-    table.add_column("Step")
-    table.add_column("Field")
-    table.add_column("Baseline", justify="right")
-    table.add_column("Candidate", justify="right")
-    table.add_column("Class")
+    table = Table(box=None, pad_edge=False, header_style="bold dim")
+    table.add_column("Where", overflow="fold", ratio=1)
+    table.add_column("Field", no_wrap=True)
+    table.add_column("Baseline", justify="right", no_wrap=True)
+    table.add_column("Candidate", justify="right", no_wrap=True)
+    table.add_column("", no_wrap=True)
     for d in differences:
         style = CLASSIFICATION_STYLE[d.classification]
+        ai = " [dim](AI)[/dim]" if d.classified_by == "llm" else ""
         table.add_row(
-            d.journey, d.step, d.field, _short(d.baseline), _short(d.candidate),
-            f"[{style}]{d.classification.value}[/{style}]",
+            f"{d.journey} [dim]›[/dim] {d.step}", d.field, _short(d.baseline, 14), _short(d.candidate, 14),
+            f"[{style}]{d.classification.value}[/{style}]{ai}",
         )
     return table
 
@@ -190,9 +197,10 @@ def _run_summary(run: JourneyRun) -> str:
 
 def _rehearsal_table(result: RehearsalResult, impact: ImpactReport | None = None) -> Table:
     relevant = set(impact.relevant_journeys) if impact else set()
-    table = Table(title="Journeys replayed" + (" (★ = hits the blast radius)" if impact else ""))
+    table = Table(box=None, pad_edge=False, header_style="bold dim",
+                  caption="★ hits the blast radius" if relevant else None, caption_justify="left")
     table.add_column("Journey")
-    table.add_column("Steps", justify="right")
+    table.add_column("Requests", justify="right")
     table.add_column("Baseline")
     table.add_column("Candidate")
     for baseline, candidate in zip(result.journey_runs_baseline, result.journey_runs_candidate):
@@ -220,17 +228,50 @@ def report(
     console.print(Markdown(path.read_text()))
 
 
+EXAMPLE_JOURNEY = """\
+name: example-health
+description: Smallest possible journey. Copy it and add the requests your users really make.
+steps:
+  - name: health check
+    method: GET
+    path: /health
+  # Capture a value from one response and reuse it later as {cart_id}:
+  # - name: create cart
+  #   method: POST
+  #   path: /cart
+  #   capture:
+  #     cart_id: id
+"""
+
+
 @app.command()
 def init(
     config_path: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Where to write the config."),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing config file."),
 ) -> None:
-    """Create a shadowship.yaml with default settings."""
+    """Set up ShadowShip in this repo: a shadowship.yaml and an example journey."""
     if config_path.exists() and not force:
         console.print(f"[yellow]{config_path} already exists. Use --force to overwrite.[/yellow]")
         raise typer.Exit(code=1)
     config_path.write_text(default_config_yaml())
-    console.print(f"[green]Wrote {config_path}[/green]")
+    console.print(f"[green]✓[/green] Wrote {config_path}")
+
+    journeys_dir = config_path.parent / load_config(config_path).journeys_dir
+    if not list(journeys_dir.glob("*.yaml")):
+        journeys_dir.mkdir(parents=True, exist_ok=True)
+        (journeys_dir / "example-health.yaml").write_text(EXAMPLE_JOURNEY)
+        console.print(f"[green]✓[/green] Wrote {journeys_dir / 'example-health.yaml'}")
+
+    console.print(
+        Panel(
+            "1. Set [bold]app.start_command[/bold] and [bold]app.asgi_app[/bold] in shadowship.yaml for your service.\n"
+            "2. Describe real user flows in journeys/*.yaml.\n"
+            "3. Optional: export ANTHROPIC_API_KEY for AI reasoning (rule-based without it).\n"
+            "4. Run: [bold]shadowship rehearse --base main --head <your-branch>[/bold]",
+            title="Next steps",
+            border_style="cyan",
+        )
+    )
 
 
 if __name__ == "__main__":

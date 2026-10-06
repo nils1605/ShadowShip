@@ -1,5 +1,6 @@
 from typer.testing import CliRunner
 
+from shadowship.agents.rehearsal import load_journeys
 from shadowship.cli import app
 
 runner = CliRunner()
@@ -12,11 +13,13 @@ def test_help_lists_commands():
         assert command in result.output
 
 
-def test_init_writes_config_and_refuses_overwrite(tmp_path):
+def test_init_writes_config_and_example_journey_and_refuses_overwrite(tmp_path):
     path = tmp_path / "shadowship.yaml"
     result = runner.invoke(app, ["init", "--config", str(path)])
     assert result.exit_code == 0
     assert path.exists()
+    [journey] = load_journeys(tmp_path / "journeys")
+    assert journey.name == "example-health" and journey.steps[0].path == "/health"
 
     result = runner.invoke(app, ["init", "--config", str(path)])
     assert result.exit_code == 1
