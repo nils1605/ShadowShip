@@ -29,3 +29,5 @@ include = ["shadowship*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "demo_app/tests"]
+# Generated regression tests assert one specific baseline; run them explicitly with `pytest tests/generated`.
+norecursedirs = ["generated", ".*", "*.egg-info"]

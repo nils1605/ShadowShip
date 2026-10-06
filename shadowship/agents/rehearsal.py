@@ -25,12 +25,13 @@ import httpx
 import yaml
 
 from shadowship.config import Config
+from shadowship.gitutil import GitError, git
 from shadowship.models import BehaviorDifference, Journey, JourneyRun, JourneyStep, RehearsalResult, StepResult
 
 BASELINE = "baseline"
 CANDIDATE = "candidate"
 
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 
 class RehearsalError(RuntimeError):
@@ -66,10 +67,10 @@ def substitute(value: Any, variables: dict[str, Any]) -> Any:
     value, so numbers stay numbers. Unknown placeholders raise KeyError.
     """
     if isinstance(value, str):
-        whole = _PLACEHOLDER.fullmatch(value)
+        whole = PLACEHOLDER.fullmatch(value)
         if whole:
             return variables[whole.group(1)]
-        return _PLACEHOLDER.sub(lambda m: str(variables[m.group(1)]), value)
+        return PLACEHOLDER.sub(lambda m: str(variables[m.group(1)]), value)
     if isinstance(value, dict):
         return {key: substitute(item, variables) for key, item in value.items()}
     if isinstance(value, list):
@@ -123,10 +124,10 @@ def replay_journey(client: httpx.Client, journey: Journey, target: str) -> Journ
 
 
 def _git(repo_root: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RehearsalError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+    try:
+        return git(repo_root, *args)
+    except GitError as exc:
+        raise RehearsalError(str(exc)) from exc
 
 
 @contextlib.contextmanager
@@ -237,11 +238,12 @@ def save_result(
     base: str,
     head: str,
     differences: list[BehaviorDifference] | None = None,
+    timestamp: datetime | None = None,
 ) -> Path:
     """Write the raw rehearsal result (and differences, if given) as JSON to reports/rehearsal-<timestamp>.json."""
     reports_dir = Path(reports_dir)
     reports_dir.mkdir(parents=True, exist_ok=True)
-    path = reports_dir / f"rehearsal-{datetime.now():%Y%m%d-%H%M%S}.json"
+    path = reports_dir / f"rehearsal-{timestamp or datetime.now():%Y%m%d-%H%M%S}.json"
     payload = {"base": base, "head": head, **asdict(result)}
     if differences is not None:
         payload["differences"] = [asdict(difference) for difference in differences]

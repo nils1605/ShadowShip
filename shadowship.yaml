@@ -1,5 +1,6 @@
 app:
   start_command: python -m uvicorn demo_app.main:app --port {port}
+  asgi_app: demo_app.main:app
   health_path: /health
   baseline_port: 8001
   candidate_port: 8002

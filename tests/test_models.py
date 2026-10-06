@@ -7,8 +7,8 @@ def test_enums_serialize_as_plain_strings():
 
 
 def test_dataclass_defaults_are_independent():
-    a = JudgeDecision(verdict=Verdict.PROMOTE, score=100)
-    b = JudgeDecision(verdict=Verdict.PROMOTE, score=100)
+    a = JudgeDecision(verdict=Verdict.PROMOTE, score=100, summary="ok")
+    b = JudgeDecision(verdict=Verdict.PROMOTE, score=100, summary="ok")
     a.generated_tests.append("tests/generated/test_x.py")
     assert b.generated_tests == []
 

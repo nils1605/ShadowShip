@@ -24,6 +24,8 @@ class AppConfig:
     """How to start the service under test."""
 
     start_command: str = "python -m uvicorn demo_app.main:app --port {port}"
+    # ASGI app import path, used by generated regression tests to call the app in-process.
+    asgi_app: str = "demo_app.main:app"
     health_path: str = "/health"
     baseline_port: int = 8001
     candidate_port: int = 8002

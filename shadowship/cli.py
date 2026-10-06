@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -13,9 +14,17 @@ from rich.table import Table
 
 from shadowship import __version__
 from shadowship.agents.behavior_diff import compare_runs
-from shadowship.agents.rehearsal import RehearsalError, run_rehearsal, save_result
+from shadowship.agents.rehearsal import RehearsalError, load_journeys, run_rehearsal, save_result
+from shadowship.agents.release_judge import judge
 from shadowship.config import DEFAULT_CONFIG_PATH, ConfigError, default_config_yaml, load_config
-from shadowship.models import BehaviorDifference, Classification, JourneyRun, RehearsalResult
+from shadowship.models import (
+    BehaviorDifference,
+    Classification,
+    JourneyRun,
+    JudgeDecision,
+    RehearsalResult,
+    Verdict,
+)
 
 app = typer.Typer(
     help="ShadowShip: agents that rehearse your release before it ships.",
@@ -72,8 +81,32 @@ def rehearse(
     differences = compare_runs(result, config.diff)
     console.print(_differences_table(differences))
 
-    saved = save_result(result, config.reports_dir, base, head, differences)
-    console.print(f"Raw results saved to [bold]{saved}[/bold]")
+    timestamp = datetime.now()
+    save_result(result, config.reports_dir, base, head, differences, timestamp)
+    decision = judge(result, differences, load_journeys(config.journeys_dir), config, base, head, timestamp=timestamp)
+    console.print(_verdict_panel(decision))
+    if decision.verdict == Verdict.BLOCK:
+        raise typer.Exit(code=1)
+
+
+def _verdict_panel(decision: JudgeDecision) -> Panel:
+    promoted = decision.verdict == Verdict.PROMOTE
+    color = "green" if promoted else "red"
+    lines = [
+        f"[bold {color}]{'✅' if promoted else '❌'} {decision.verdict.value}[/bold {color}]   "
+        f"Confidence [bold]{decision.score}/100[/bold]",
+        "",
+        decision.summary,
+        "",
+        f"Report: [bold]{decision.report_path}[/bold]",
+    ]
+    if decision.release_tag:
+        lines.append(f"Promoted as [bold]{decision.release_tag}[/bold]")
+    for path in decision.generated_tests:
+        lines.append(f"Generated test: [bold]{path}[/bold]")
+    if decision.rollback_plan:
+        lines.append("Rollback plan: see the report")
+    return Panel("\n".join(lines), title="Release Judge", border_style=color)
 
 
 CLASSIFICATION_STYLE = {

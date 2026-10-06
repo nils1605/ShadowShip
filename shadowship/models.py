@@ -110,6 +110,9 @@ class JudgeDecision:
 
     verdict: Verdict
     score: int
+    summary: str
+    penalties: list[str] = field(default_factory=list)
     report_path: str | None = None
     generated_tests: list[str] = field(default_factory=list)
     rollback_plan: str | None = None
+    release_tag: str | None = None
