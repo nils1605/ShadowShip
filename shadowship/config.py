@@ -49,7 +49,8 @@ class JudgeConfig:
 @dataclass
 class LLMConfig:
     enabled: bool = True
-    model: str = "claude-sonnet-5-5"
+    model: str = "claude-opus-5-5"
+    effort: str = "low"  # low | medium | high | xhigh | max; short classification/summaries need little
 
 
 @dataclass

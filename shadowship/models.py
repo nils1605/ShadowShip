@@ -39,6 +39,8 @@ class ImpactReport:
     changed_symbols: list[str] = field(default_factory=list)  # e.g. "demo_app/main.py::checkout"
     dependents: list[str] = field(default_factory=list)  # files importing a changed module
     relevant_journeys: list[str] = field(default_factory=list)  # journeys that hit an affected route
+    intended_changes: list[str] = field(default_factory=list)  # behavior changes the diff means to make (LLM)
+    intent_source: str = "commit messages"  # or "llm"
 
 
 @dataclass
@@ -105,6 +107,7 @@ class BehaviorDifference:
     candidate: Any
     classification: Classification
     reason: str
+    classified_by: str = "rules"  # "rules" or "llm"
 
 
 @dataclass
@@ -119,3 +122,4 @@ class JudgeDecision:
     generated_tests: list[str] = field(default_factory=list)
     rollback_plan: str | None = None
     release_tag: str | None = None
+    summary_source: str = "rules"  # or "llm"

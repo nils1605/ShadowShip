@@ -19,6 +19,7 @@ from shadowship.agents.rehearsal import RehearsalError, load_journeys, run_rehea
 from shadowship.agents.release_judge import judge
 from shadowship.config import DEFAULT_CONFIG_PATH, ConfigError, default_config_yaml, load_config
 from shadowship.gitutil import GitError
+from shadowship.integrations.llm import LLM
 from shadowship.models import (
     BehaviorDifference,
     Classification,
@@ -73,10 +74,11 @@ def rehearse(
     )
 
     journeys = load_journeys(config.journeys_dir)
+    llm = LLM(config.llm)
     impact = None
     try:
         with console.status("Mapping the blast radius..."):
-            impact = scout(base, head, journeys=journeys)
+            impact = scout(base, head, journeys=journeys, llm=llm)
         console.print(_impact_panel(impact))
     except GitError as exc:
         console.print(f"[yellow]Impact Scout skipped:[/yellow] {exc}")
@@ -90,23 +92,38 @@ def rehearse(
 
     console.print(_rehearsal_table(result, impact))
 
-    differences = compare_runs(result, config.diff, impact)
+    with console.status("Comparing behavior..."):
+        differences = compare_runs(result, config.diff, impact, llm)
     console.print(_differences_table(differences))
 
     timestamp = datetime.now()
     save_result(result, config.reports_dir, base, head, differences, timestamp)
-    decision = judge(result, differences, journeys, config, base, head, impact=impact, timestamp=timestamp)
+    with console.status("Judging the release..."):
+        decision = judge(result, differences, journeys, config, base, head, impact=impact, timestamp=timestamp,
+                         llm=llm)
     console.print(_verdict_panel(decision))
+    console.print(_llm_status(llm))
     if decision.verdict == Verdict.BLOCK:
         raise typer.Exit(code=1)
 
 
+def _llm_status(llm: LLM) -> str:
+    if llm.used and not llm.notes:
+        return f"[dim]AI reasoning by {llm.config.model}: {', '.join(llm.used)}.[/dim]"
+    if llm.used:
+        return (f"[dim]AI reasoning by {llm.config.model}: {', '.join(llm.used)}. "
+                f"Rule-based fallback for the rest ({'; '.join(llm.notes)}).[/dim]")
+    reason = "; ".join(llm.notes) or "LLM unavailable"
+    return f"[dim]AI reasoning off ({reason}): used rule-based fallbacks.[/dim]"
+
+
 def _impact_panel(impact: ImpactReport) -> Panel:
     lines = [
-        f"[bold]Intent:[/bold] {impact.intent_summary}",
+        f"[bold]Intent{' (AI)' if impact.intent_source == 'llm' else ''}:[/bold] {impact.intent_summary}",
         f"[bold]Changed files:[/bold] {', '.join(impact.changed_files) or 'none'}",
         f"[bold]Affected routes:[/bold] {', '.join(impact.affected_routes) or 'none found'}",
     ]
+    lines += [f"[bold]Intended:[/bold] {change}" for change in impact.intended_changes]
     lines += [f"[yellow]⚠ {hint}[/yellow]" for hint in impact.risk_hints]
     return Panel("\n".join(lines), title="Impact Scout: blast radius", border_style="cyan")
 

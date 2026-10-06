@@ -21,6 +21,7 @@ Rule-based classification (first matching rule wins):
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -28,6 +29,7 @@ from deepdiff import DeepDiff
 
 from shadowship.agents.impact_scout import route_matches
 from shadowship.config import DiffConfig
+from shadowship.integrations.llm import LLM
 from shadowship.models import BehaviorDifference, Classification, ImpactReport, JourneyRun, RehearsalResult, StepResult
 
 MISSING = "(missing)"
@@ -141,12 +143,93 @@ def compare_journey(
 
 
 def compare_runs(
-    result: RehearsalResult, config: DiffConfig, impact: ImpactReport | None = None
+    result: RehearsalResult,
+    config: DiffConfig,
+    impact: ImpactReport | None = None,
+    llm: LLM | None = None,
 ) -> list[BehaviorDifference]:
-    """Compare every journey that was replayed against both baseline and candidate."""
+    """Compare every journey replayed against both baseline and candidate, then (optionally) let the LLM
+    refine the rule-based classifications using the change's intent."""
     candidates = {run.journey: run for run in result.journey_runs_candidate}
     differences = []
     for baseline in result.journey_runs_baseline:
         if baseline.journey in candidates:
             differences.extend(compare_journey(baseline, candidates[baseline.journey], config, impact))
+    if llm is not None and differences:
+        llm_classify(llm, differences, result, impact)
     return differences
+
+
+# --- LLM classification ----------------------------------------------------------------
+
+CLASSIFY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "classifications": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "classification": {"type": "string", "enum": [c.value for c in Classification]},
+                    "reason": {"type": "string", "description": "One sentence a reviewer can act on."},
+                },
+                "required": ["index", "classification", "reason"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["classifications"],
+    "additionalProperties": False,
+}
+
+
+def _locked(difference: BehaviorDifference) -> bool:
+    """Server errors and failed requests stay regressions, whatever the LLM thinks."""
+    return difference.field == "status_code" and difference.reason.startswith("Candidate fails")
+
+
+def llm_classify(
+    llm: LLM, differences: list[BehaviorDifference], result: RehearsalResult, impact: ImpactReport | None
+) -> None:
+    """Refine classifications in place. Leaves the rule-based ones untouched if the LLM is unavailable."""
+    requests = {
+        (run.journey, step.step): f"{step.method} {step.path}" for run in result.journey_runs_baseline for step in run.steps
+    }
+    rows = [
+        {
+            "index": i,
+            "journey": d.journey,
+            "step": d.step,
+            "request": requests.get((d.journey, d.step), ""),
+            "field": d.field,
+            "baseline": d.baseline,
+            "candidate": d.candidate,
+            "rule_based_guess": d.classification.value,
+        }
+        for i, d in enumerate(differences)
+    ]
+    intent = impact.intent_summary if impact else "unknown"
+    intended = "\n".join(f"- {change}" for change in impact.intended_changes) if impact else ""
+    prompt = (
+        "Classify each difference between baseline and candidate responses to the same request.\n"
+        "- intended: the change's intent clearly explains this difference.\n"
+        "- regression: existing behavior changed in a way the intent does not explain "
+        "(e.g. a different total for a request that does not use the new feature).\n"
+        "- suspicious: plausibly related to the intent but needs a human to confirm.\n"
+        "Prefer regression over intended when unsure whether customers relying on the old behavior are affected.\n\n"
+        f"Intent of the change: {intent}\n"
+        + (f"Intended behavior changes:\n{intended}\n" if intended else "")
+        + f"\n<differences>\n{json.dumps(rows, default=str, indent=1)}\n</differences>"
+    )
+    answer = llm.ask_json("classification", prompt, CLASSIFY_SCHEMA)
+    if not answer:
+        return
+    for item in answer["classifications"]:
+        index = item["index"]
+        if not 0 <= index < len(differences) or _locked(differences[index]):
+            continue
+        difference = differences[index]
+        difference.classification = Classification(item["classification"])
+        difference.reason = item["reason"]
+        difference.classified_by = "llm"

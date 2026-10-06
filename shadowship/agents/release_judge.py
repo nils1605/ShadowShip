@@ -13,6 +13,7 @@ the baseline behavior) and a rollback plan. On PROMOTE it promotes the release t
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from datetime import datetime
@@ -24,6 +25,7 @@ from shadowship.agents.rehearsal import PLACEHOLDER
 from shadowship.config import Config
 from shadowship.gitutil import GitError, git, short_sha
 from shadowship.integrations import agentia
+from shadowship.integrations.llm import LLM
 from shadowship.models import (
     BehaviorDifference,
     Classification,
@@ -75,7 +77,8 @@ def summarize(
     """A few plain-language sentences a judge can read in 30 seconds."""
     journeys = len(result.journey_runs_baseline)
     steps = sum(len(run.steps) for run in result.journey_runs_baseline)
-    text = f"ShadowShip replayed {journeys} journeys ({steps} requests) against both versions. "
+    text = (f"ShadowShip replayed {journeys} journey{'s' if journeys != 1 else ''} "
+            f"({steps} request{'s' if steps != 1 else ''}) against both versions. ")
 
     by_class = Counter(d.classification for d in differences)
     regressions = [d for d in differences if d.classification == Classification.REGRESSION]
@@ -99,6 +102,44 @@ def summarize(
     else:
         text += f"The release is blocked (confidence {score_value}, threshold {threshold})."
     return text
+
+
+NARRATIVE_SCHEMA = {
+    "type": "object",
+    "properties": {"summary": {"type": "string"}},
+    "required": ["summary"],
+    "additionalProperties": False,
+}
+
+
+def llm_summary(
+    llm: LLM,
+    verdict: Verdict,
+    score_value: int,
+    threshold: int,
+    result: RehearsalResult,
+    differences: list[BehaviorDifference],
+    impact: ImpactReport | None,
+) -> str | None:
+    """Plain-language narrative of the verdict. The verdict itself is never decided by the LLM."""
+    rows = [
+        {"journey": d.journey, "step": d.step, "field": d.field, "baseline": d.baseline,
+         "candidate": d.candidate, "classification": d.classification.value, "reason": d.reason}
+        for d in differences
+    ]
+    prompt = (
+        f"The release verdict is {verdict.value} with confidence {score_value}/100 (threshold {threshold}). "
+        "Write the summary paragraph of the Release Rehearsal Report: 3 to 5 plain sentences a judge can read "
+        "in 30 seconds. Say what the change intended, what ShadowShip found (cite one concrete example with "
+        "the baseline and candidate values), what it means for customers, and the next step. Do not change or "
+        "question the verdict. No markdown headings or bullet points.\n\n"
+        f"Journeys replayed: {len(result.journey_runs_baseline)}\n"
+        f"Intent of the change: {impact.intent_summary if impact else 'unknown'}\n"
+        f"Risk hints: {'; '.join(impact.risk_hints) if impact and impact.risk_hints else 'none'}\n"
+        f"<differences>\n{json.dumps(rows, default=str, indent=1)}\n</differences>"
+    )
+    answer = llm.ask_json("report narrative", prompt, NARRATIVE_SCHEMA)
+    return answer["summary"].strip() if answer else None
 
 
 # --- Generated regression tests ---------------------------------------------------
@@ -297,14 +338,18 @@ def render_report(
         "",
         decision.summary,
     ]
+    if decision.summary_source == "llm":
+        out += ["", f"_Summary written by {config.llm.model}; the verdict and score are rule-based._"]
     if decision.release_tag:
         out += ["", f"Promoted as `{decision.release_tag}`."]
 
     out += ["", "## Blast radius", ""]
     if impact:
+        source = " _(LLM)_" if impact.intent_source == "llm" else " _(from commit messages)_"
+        out += [f"**Intent:** {impact.intent_summary}{source}", ""]
+        if impact.intended_changes:
+            out += ["**Intended behavior changes:**", "", *[f"- {c}" for c in impact.intended_changes], ""]
         out += [
-            f"**Intent:** {impact.intent_summary}",
-            "",
             "**Changed files:** " + ", ".join(f"`{f}`" for f in impact.changed_files),
             "",
             "**Changed code:** " + (", ".join(f"`{s}`" for s in impact.changed_symbols) or "none"),
@@ -327,7 +372,8 @@ def render_report(
         for d in differences:
             out.append(
                 f"| {_cell(d.journey)} | {_cell(d.step)} | `{_cell(d.field)}` | {_cell(d.baseline)} "
-                f"| {_cell(d.candidate)} | {CLASS_ICON[d.classification]} | {_cell(d.reason, 200)} |"
+                f"| {_cell(d.candidate)} | {CLASS_ICON[d.classification]} "
+                f"| {_cell(d.reason, 200)}{' _(LLM)_' if d.classified_by == 'llm' else ''} |"
             )
     else:
         out += ["None. Baseline and candidate behaved identically."]
@@ -370,6 +416,7 @@ def judge(
     repo_root: str | Path = ".",
     impact: ImpactReport | None = None,
     timestamp: datetime | None = None,
+    llm: LLM | None = None,
 ) -> JudgeDecision:
     """Score, decide, write tests/rollback plan on BLOCK, promote on PROMOTE, and write the report."""
     repo_root = Path(repo_root)
@@ -384,6 +431,10 @@ def judge(
         summary=summarize(verdict, score_value, threshold, result, differences),
         penalties=penalties,
     )
+    if llm is not None:
+        narrative = llm_summary(llm, verdict, score_value, threshold, result, differences, impact)
+        if narrative:
+            decision.summary, decision.summary_source = narrative, "llm"
 
     reports_dir = repo_root / config.reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)

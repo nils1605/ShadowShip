@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from shadowship.gitutil import GitError, git
+from shadowship.integrations.llm import LLM
 from shadowship.models import ImpactReport, Journey
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
@@ -195,6 +196,43 @@ def intent_from_commits(messages: list[str]) -> str:
     return " ".join(cleaned) or "No commit messages found."
 
 
+# Diffs larger than this are summarized by file list instead of sent in full.
+MAX_DIFF_CHARS = 150_000
+
+INTENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "intent_summary": {
+            "type": "string",
+            "description": "One or two sentences: what the change is meant to do, in plain language.",
+        },
+        "intended_behavior_changes": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Externally visible behavior changes the author intends, e.g. 'Checkout accepts the "
+                           "SAVE10 code (10% off)'. Only what the commits or diff clearly intend.",
+        },
+    },
+    "required": ["intent_summary", "intended_behavior_changes"],
+    "additionalProperties": False,
+}
+
+
+def llm_intent(llm: LLM, messages: list[str], diff: str, diff_stat: str) -> dict | None:
+    """Ask the LLM what the change intends. Returns None if the LLM is unavailable or fails."""
+    if len(diff) > MAX_DIFF_CHARS:
+        diff_block = f"The full diff is too large to include; files changed:\n{diff_stat}"
+    else:
+        diff_block = diff
+    prompt = (
+        "Summarize the intent of this code change and list the externally visible behavior changes "
+        "it intends to make. Do not list side effects the author did not clearly intend.\n\n"
+        "<commit_messages>\n" + "\n---\n".join(messages) + "\n</commit_messages>\n\n"
+        f"<diff>\n{diff_block}\n</diff>"
+    )
+    return llm.ask_json("intent summary", prompt, INTENT_SCHEMA)
+
+
 def risk_hints(
     changed: dict[str, set[str]],
     affected_routes: list[str],
@@ -241,7 +279,13 @@ def _read(repo_root: str | Path, ref: str, path: str) -> str:
         return ""
 
 
-def scout(base: str, head: str, repo_root: str | Path = ".", journeys: list[Journey] | None = None) -> ImpactReport:
+def scout(
+    base: str,
+    head: str,
+    repo_root: str | Path = ".",
+    journeys: list[Journey] | None = None,
+    llm: LLM | None = None,
+) -> ImpactReport:
     """Map the blast radius of the changes in `head` since it branched from `base`."""
     merge_base = git(repo_root, "merge-base", base, head)
     changed_files = git(repo_root, "diff", "--name-only", f"{merge_base}..{head}").splitlines()
@@ -287,10 +331,26 @@ def scout(base: str, head: str, repo_root: str | Path = ".", journeys: list[Jour
     affected_routes = sorted({s.route for s in symbols if s.route and s.name in affected})
 
     changed_tests = {path: sources.get(path, "") for path in changed_files if path.endswith(".py") and is_test_file(path)}
+
+    messages = commit_messages(repo_root, merge_base, head)
+    intent, intended_changes, intent_source = intent_from_commits(messages), [], "commit messages"
+    if llm is not None:
+        answer = llm_intent(
+            llm, messages,
+            git(repo_root, "diff", f"{merge_base}..{head}"),
+            git(repo_root, "diff", "--stat", f"{merge_base}..{head}"),
+        )
+        if answer:
+            intent, intended_changes, intent_source = (
+                answer["intent_summary"], answer["intended_behavior_changes"], "llm"
+            )
+
     return ImpactReport(
         changed_files=changed_files,
         affected_routes=affected_routes,
-        intent_summary=intent_from_commits(commit_messages(repo_root, merge_base, head)),
+        intent_summary=intent,
+        intended_changes=intended_changes,
+        intent_source=intent_source,
         risk_hints=risk_hints(changed, affected_routes, changed_tests, removed, functions),
         changed_symbols=sorted(f"{path}::{name}" for path, names in changed.items() for name in names),
         dependents=dependents,
