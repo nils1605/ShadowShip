@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.table import Table
 
 from shadowship import __version__
+from shadowship.agents.rehearsal import RehearsalError, run_rehearsal, save_result
 from shadowship.config import DEFAULT_CONFIG_PATH, ConfigError, default_config_yaml, load_config
+from shadowship.models import JourneyRun, RehearsalResult
 
 app = typer.Typer(
     help="ShadowShip: agents that rehearse your release before it ships.",
@@ -54,7 +58,37 @@ def rehearse(
             title="ShadowShip release rehearsal",
         )
     )
-    console.print("[yellow]The rehearsal pipeline is not implemented yet.[/yellow]")
+
+    try:
+        with console.status("Rehearsing...") as status:
+            result = run_rehearsal(base, head, config, on_progress=lambda message: status.update(message))
+    except RehearsalError as exc:
+        console.print(f"[red]Rehearsal failed:[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    console.print(_rehearsal_table(result))
+    saved = save_result(result, config.reports_dir, base, head)
+    console.print(f"Raw results saved to [bold]{saved}[/bold]")
+
+
+def _run_summary(run: JourneyRun) -> str:
+    """Status codes counted per value, e.g. '200×6 400×1'. Red if any step errored or returned 5xx."""
+    errors = [s for s in run.steps if s.error or s.status_code is None or s.status_code >= 500]
+    counts = Counter(str(s.status_code or "ERR") for s in run.steps)
+    statuses = " ".join(f"{status}×{count}" for status, count in sorted(counts.items()))
+    color = "red" if errors else "green"
+    return f"[{color}]{statuses}[/{color}]"
+
+
+def _rehearsal_table(result: RehearsalResult) -> Table:
+    table = Table(title="Journeys replayed")
+    table.add_column("Journey")
+    table.add_column("Steps", justify="right")
+    table.add_column("Baseline")
+    table.add_column("Candidate")
+    for baseline, candidate in zip(result.journey_runs_baseline, result.journey_runs_candidate):
+        table.add_row(baseline.journey, str(len(baseline.steps)), _run_summary(baseline), _run_summary(candidate))
+    return table
 
 
 @app.command()
