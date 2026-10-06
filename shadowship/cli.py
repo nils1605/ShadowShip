@@ -14,12 +14,15 @@ from rich.table import Table
 
 from shadowship import __version__
 from shadowship.agents.behavior_diff import compare_runs
+from shadowship.agents.impact_scout import scout
 from shadowship.agents.rehearsal import RehearsalError, load_journeys, run_rehearsal, save_result
 from shadowship.agents.release_judge import judge
 from shadowship.config import DEFAULT_CONFIG_PATH, ConfigError, default_config_yaml, load_config
+from shadowship.gitutil import GitError
 from shadowship.models import (
     BehaviorDifference,
     Classification,
+    ImpactReport,
     JourneyRun,
     JudgeDecision,
     RehearsalResult,
@@ -69,6 +72,15 @@ def rehearse(
         )
     )
 
+    journeys = load_journeys(config.journeys_dir)
+    impact = None
+    try:
+        with console.status("Mapping the blast radius..."):
+            impact = scout(base, head, journeys=journeys)
+        console.print(_impact_panel(impact))
+    except GitError as exc:
+        console.print(f"[yellow]Impact Scout skipped:[/yellow] {exc}")
+
     try:
         with console.status("Rehearsing...") as status:
             result = run_rehearsal(base, head, config, on_progress=lambda message: status.update(message))
@@ -76,17 +88,27 @@ def rehearse(
         console.print(f"[red]Rehearsal failed:[/red] {exc}")
         raise typer.Exit(code=1)
 
-    console.print(_rehearsal_table(result))
+    console.print(_rehearsal_table(result, impact))
 
-    differences = compare_runs(result, config.diff)
+    differences = compare_runs(result, config.diff, impact)
     console.print(_differences_table(differences))
 
     timestamp = datetime.now()
     save_result(result, config.reports_dir, base, head, differences, timestamp)
-    decision = judge(result, differences, load_journeys(config.journeys_dir), config, base, head, timestamp=timestamp)
+    decision = judge(result, differences, journeys, config, base, head, impact=impact, timestamp=timestamp)
     console.print(_verdict_panel(decision))
     if decision.verdict == Verdict.BLOCK:
         raise typer.Exit(code=1)
+
+
+def _impact_panel(impact: ImpactReport) -> Panel:
+    lines = [
+        f"[bold]Intent:[/bold] {impact.intent_summary}",
+        f"[bold]Changed files:[/bold] {', '.join(impact.changed_files) or 'none'}",
+        f"[bold]Affected routes:[/bold] {', '.join(impact.affected_routes) or 'none found'}",
+    ]
+    lines += [f"[yellow]⚠ {hint}[/yellow]" for hint in impact.risk_hints]
+    return Panel("\n".join(lines), title="Impact Scout: blast radius", border_style="cyan")
 
 
 def _verdict_panel(decision: JudgeDecision) -> Panel:
@@ -149,14 +171,16 @@ def _run_summary(run: JourneyRun) -> str:
     return f"[{color}]{statuses}[/{color}]"
 
 
-def _rehearsal_table(result: RehearsalResult) -> Table:
-    table = Table(title="Journeys replayed")
+def _rehearsal_table(result: RehearsalResult, impact: ImpactReport | None = None) -> Table:
+    relevant = set(impact.relevant_journeys) if impact else set()
+    table = Table(title="Journeys replayed" + (" (★ = hits the blast radius)" if impact else ""))
     table.add_column("Journey")
     table.add_column("Steps", justify="right")
     table.add_column("Baseline")
     table.add_column("Candidate")
     for baseline, candidate in zip(result.journey_runs_baseline, result.journey_runs_candidate):
-        table.add_row(baseline.journey, str(len(baseline.steps)), _run_summary(baseline), _run_summary(candidate))
+        name = ("★ " if baseline.journey in relevant else "  ") + baseline.journey if impact else baseline.journey
+        table.add_row(name, str(len(baseline.steps)), _run_summary(baseline), _run_summary(candidate))
     return table
 
 

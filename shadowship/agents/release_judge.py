@@ -302,11 +302,19 @@ def render_report(
 
     out += ["", "## Blast radius", ""]
     if impact:
-        out += [f"**Intent:** {impact.intent_summary}", ""]
-        out += ["**Changed files:** " + ", ".join(f"`{f}`" for f in impact.changed_files)]
-        out += ["", "**Affected routes:** " + (", ".join(f"`{r}`" for r in impact.affected_routes) or "none found")]
+        out += [
+            f"**Intent:** {impact.intent_summary}",
+            "",
+            "**Changed files:** " + ", ".join(f"`{f}`" for f in impact.changed_files),
+            "",
+            "**Changed code:** " + (", ".join(f"`{s}`" for s in impact.changed_symbols) or "none"),
+            "",
+            "**Affected routes:** " + (", ".join(f"`{r}`" for r in impact.affected_routes) or "none found"),
+        ]
+        if impact.dependents:
+            out += ["", "**Dependents:** " + ", ".join(f"`{d}`" for d in impact.dependents)]
         if impact.risk_hints:
-            out += ["", "**Risk hints:**", *[f"- {hint}" for hint in impact.risk_hints]]
+            out += ["", "**Risk hints:**", "", *[f"- {hint}" for hint in impact.risk_hints]]
     else:
         out += ["Not analyzed."]
 
@@ -329,11 +337,13 @@ def render_report(
                 + f" = {decision.score}", ""]
         out += [f"- {p}" for p in decision.penalties]
 
-    out += ["", "## Journeys replayed", "", "| Journey | Requests | Differences |", "|---|---|---|"]
+    relevant = set(impact.relevant_journeys) if impact else set()
+    out += ["", "## Journeys replayed", "", "| Journey | Requests | In blast radius | Differences |", "|---|---|---|---|"]
     for run in result.journey_runs_baseline:
         counts = Counter(d.classification for d in differences if d.journey == run.journey)
         found = ", ".join(f"{n} {c.value}" for c, n in counts.items()) or "none"
-        out.append(f"| {run.journey} | {len(run.steps)} | {found} |")
+        flag = "yes" if run.journey in relevant else ("no" if impact else "?")
+        out.append(f"| {run.journey} | {len(run.steps)} | {flag} | {found} |")
 
     if decision.generated_tests:
         out += ["", "## Generated regression tests", ""]

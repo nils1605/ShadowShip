@@ -33,9 +33,12 @@ class ImpactReport:
     """Blast radius of a diff, produced by the Impact Scout."""
 
     changed_files: list[str]
-    affected_routes: list[str]
+    affected_routes: list[str]  # e.g. "POST /checkout"
     intent_summary: str
     risk_hints: list[str] = field(default_factory=list)
+    changed_symbols: list[str] = field(default_factory=list)  # e.g. "demo_app/main.py::checkout"
+    dependents: list[str] = field(default_factory=list)  # files importing a changed module
+    relevant_journeys: list[str] = field(default_factory=list)  # journeys that hit an affected route
 
 
 @dataclass

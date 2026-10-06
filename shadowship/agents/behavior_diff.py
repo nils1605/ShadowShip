@@ -26,6 +26,7 @@ from typing import Any
 
 from deepdiff import DeepDiff
 
+from shadowship.agents.impact_scout import route_matches
 from shadowship.config import DiffConfig
 from shadowship.models import BehaviorDifference, Classification, ImpactReport, JourneyRun, RehearsalResult, StepResult
 
@@ -79,12 +80,13 @@ def _status_difference(
     return make(Classification.SUSPICIOUS, "Status code changed.")
 
 
-def _route_note(path: str, impact: ImpactReport | None) -> str:
+def _route_note(step: StepResult, impact: ImpactReport | None) -> str:
     if impact is None:
         return ""
-    if any(path == route or path.startswith(route.rstrip("/") + "/") for route in impact.affected_routes):
-        return f" The route {path} is in the blast radius, but this journey only uses existing features."
-    return f" The route {path} is outside the blast radius of the change."
+    route = f"{step.method} {step.path}"
+    if any(route_matches(affected, step.method, step.path) for affected in impact.affected_routes):
+        return f" {route} is in the blast radius, but this journey only uses existing features."
+    return f" {route} is outside the blast radius of the change."
 
 
 def _latency_difference(journey: str, base: StepResult, cand: StepResult, config: DiffConfig) -> BehaviorDifference | None:
@@ -126,7 +128,7 @@ def compare_journey(
                 else:
                     classification = Classification.REGRESSION
                     reason = "Existing journey that worked on baseline now returns different data."
-                    reason += _route_note(base.path, impact)
+                    reason += _route_note(base, impact)
                 differences.append(
                     BehaviorDifference(baseline.journey, base.step, field, old, new, classification, reason)
                 )

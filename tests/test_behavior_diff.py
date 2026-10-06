@@ -95,8 +95,8 @@ def test_changed_output_in_journey_using_new_behavior_is_suspicious():
 
 def test_reason_mentions_blast_radius_when_impact_is_known():
     b, c = runs([step(body={"tax": 1})], [step(body={"tax": 2})])
-    inside = ImpactReport(["demo_app/main.py"], ["/checkout"], "Add SAVE10")
-    outside = ImpactReport(["demo_app/main.py"], ["/products"], "Add SAVE10")
+    inside = ImpactReport(["demo_app/main.py"], ["POST /checkout"], "Add SAVE10")
+    outside = ImpactReport(["demo_app/main.py"], ["GET /products"], "Add SAVE10")
     assert "in the blast radius" in compare_journey(b, c, CONFIG, inside)[0].reason
     assert "outside the blast radius" in compare_journey(b, c, CONFIG, outside)[0].reason
 
