@@ -141,9 +141,34 @@ steps:
 
 ## Agentia Headless integration
 
-All Agentia calls live in `shadowship/integrations/agentia.py` (`trigger_pipeline`,
-`provision_environment`, `promote_release`, `post_report`). They are currently local stand-ins
-(promotion creates a git tag) and will be replaced with real Agentia Headless calls.
+ShadowShip runs as an [Agentia Headless](https://developer.copado.com/docs) **local quality gate**.
+`agentia cicd work submit` and `agentia cicd work test` run `.agentia_quality_gates.sh` before a user
+story moves through the Copado pipeline. That script runs `shadowship rehearse --base main --head HEAD`:
+
+- **BLOCK** exits 1, so Agentia stops the promotion. The report, regression tests and rollback plan are
+  already written.
+- **PROMOTE** exits 0, so Agentia continues and promotes the story. ShadowShip also tags `release/<sha>`.
+
+```bash
+npm install -g @copado/agentia-cli && agentia setup   # once
+agentia cicd work test                                # rehearse the current branch through Agentia
+agentia cicd work submit --done                       # rehearse, then promote if ShadowShip approves
+```
+
+Set `SHADOWSHIP_BASE` to rehearse against a branch other than `main`.
+
+When the CLI has a Copado CICD API key, ShadowShip also uses it directly (`agentia` section of
+`shadowship.yaml`):
+
+| Setting | Effect |
+|---|---|
+| `user_story` | Copado user story to read and update. Blank means the active work item from `agentia cicd work set`. |
+| `report_field` | User story field that receives the verdict, e.g. `technical-specifications`. Blank means don't write. |
+| `enabled: false` | Never call the CLI. |
+
+All Agentia calls live in `shadowship/integrations/agentia.py`. Without the CLI or credentials each
+call falls back to a local equivalent, so `scripts/demo.sh` still runs anywhere. Environments stay
+local git worktrees, because Agentia environments are Salesforce orgs and the demo is a web service.
 
 ## Project layout
 

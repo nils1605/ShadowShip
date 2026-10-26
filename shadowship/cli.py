@@ -19,6 +19,7 @@ from shadowship.agents.rehearsal import RehearsalError, load_journeys, run_rehea
 from shadowship.agents.release_judge import judge
 from shadowship.config import DEFAULT_CONFIG_PATH, ConfigError, default_config_yaml, load_config
 from shadowship.gitutil import GitError
+from shadowship.integrations import agentia
 from shadowship.integrations.llm import LLM
 from shadowship.models import (
     BehaviorDifference,
@@ -73,6 +74,7 @@ def rehearse(
             title="🚢 ShadowShip release rehearsal",
         )
     )
+    console.print(_agentia_status(agentia.trigger_pipeline("rehearse", {"base": base, "head": head}, config.agentia)))
 
     _stage(1, "Impact Scout", "what could this change break?")
     impact = None
@@ -105,8 +107,19 @@ def rehearse(
                          llm=llm)
     console.print(_verdict_panel(decision))
     console.print(_llm_status(llm))
+    if agentia.in_quality_gate():
+        console.print("[dim]Agentia quality gate: " + ("passed, Agentia continues the promotion."
+                      if decision.verdict == Verdict.PROMOTE else "failed, Agentia stops the promotion.") + "[/dim]")
     if decision.verdict == Verdict.BLOCK:
         raise typer.Exit(code=1)
+
+
+def _agentia_status(event: dict) -> str:
+    if event.get("status") == "ok":
+        return f"[dim]Agentia: rehearsing Copado user story {event['user_story'] or '(active work item)'}.[/dim]"
+    if event.get("status") == "error":
+        return f"[yellow]Agentia: {event['error']}. Continuing locally.[/yellow]"
+    return "[dim]Agentia CLI not configured: running locally.[/dim]"
 
 
 def _stage(number: int, name: str, question: str) -> None:

@@ -456,5 +456,6 @@ def judge(
             short_sha(repo_root, base), short_sha(repo_root, head), timestamp, impact,
         )
     )
-    agentia.post_report(report_path)
+    agentia.post_report(decision.report_path, f"{decision.verdict.value} ({decision.score}/100): {decision.summary}",
+                        config.agentia)
     return decision

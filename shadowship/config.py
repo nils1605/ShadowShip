@@ -54,11 +54,23 @@ class LLMConfig:
 
 
 @dataclass
+class AgentiaConfig:
+    """Copado Agentia Headless CLI. Used only when `agentia` is installed and has a CICD API key."""
+
+    enabled: bool = True
+    # Copado user story to report on (ID or name). Blank = the active work item from `agentia cicd work set`.
+    user_story: str = ""
+    # User story field that receives the verdict summary, e.g. "technical-specifications". Blank = don't write.
+    report_field: str = ""
+
+
+@dataclass
 class Config:
     app: AppConfig = field(default_factory=AppConfig)
     diff: DiffConfig = field(default_factory=DiffConfig)
     judge: JudgeConfig = field(default_factory=JudgeConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    agentia: AgentiaConfig = field(default_factory=AgentiaConfig)
     journeys_dir: str = "journeys"
     reports_dir: str = "reports"
     generated_tests_dir: str = "tests/generated"
@@ -68,7 +80,7 @@ class Config:
         return asdict(self)
 
 
-_SECTIONS = {"app": AppConfig, "diff": DiffConfig, "judge": JudgeConfig, "llm": LLMConfig}
+_SECTIONS = {"app": AppConfig, "diff": DiffConfig, "judge": JudgeConfig, "llm": LLMConfig, "agentia": AgentiaConfig}
 
 
 def _build(cls: type, data: dict[str, Any], where: str) -> Any:

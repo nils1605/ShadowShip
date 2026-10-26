@@ -19,6 +19,10 @@ llm:
   enabled: true
   model: claude-opus-5-5
   effort: low
+agentia:
+  enabled: true
+  user_story: ''
+  report_field: ''
 journeys_dir: journeys
 reports_dir: reports
 generated_tests_dir: tests/generated
