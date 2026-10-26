@@ -39,3 +39,30 @@ def test_default_yaml_round_trips(tmp_path):
 
 def test_repo_config_is_valid():
     load_config("shadowship.yaml")
+
+
+def test_env_file_sets_missing_variables_only(tmp_path, monkeypatch):
+    from shadowship.config import load_env_file
+
+    env = tmp_path / ".env"
+    env.write_text("# comment\nSHADOWSHIP_TEST_A=one\nexport SHADOWSHIP_TEST_B='two'\nSHADOWSHIP_TEST_C=\n"
+                   "SHADOWSHIP_TEST_D=from-file\n")
+    monkeypatch.delenv("SHADOWSHIP_TEST_A", raising=False)
+    monkeypatch.delenv("SHADOWSHIP_TEST_B", raising=False)
+    monkeypatch.delenv("SHADOWSHIP_TEST_C", raising=False)
+    monkeypatch.setenv("SHADOWSHIP_TEST_D", "from-shell")
+    assert load_env_file(env) == ["SHADOWSHIP_TEST_A", "SHADOWSHIP_TEST_B"]
+    import os
+
+    assert os.environ["SHADOWSHIP_TEST_A"] == "one"
+    assert os.environ["SHADOWSHIP_TEST_B"] == "two"
+    assert "SHADOWSHIP_TEST_C" not in os.environ
+    assert os.environ["SHADOWSHIP_TEST_D"] == "from-shell"
+    for name in ("SHADOWSHIP_TEST_A", "SHADOWSHIP_TEST_B"):
+        monkeypatch.delenv(name)
+
+
+def test_missing_env_file_is_fine(tmp_path):
+    from shadowship.config import load_env_file
+
+    assert load_env_file(tmp_path / "nope") == []

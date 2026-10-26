@@ -17,7 +17,7 @@ from shadowship.agents.behavior_diff import compare_runs
 from shadowship.agents.impact_scout import scout
 from shadowship.agents.rehearsal import RehearsalError, load_journeys, run_rehearsal, save_result
 from shadowship.agents.release_judge import judge
-from shadowship.config import DEFAULT_CONFIG_PATH, ConfigError, default_config_yaml, load_config
+from shadowship.config import DEFAULT_CONFIG_PATH, ConfigError, default_config_yaml, load_config, load_env_file
 from shadowship.gitutil import GitError
 from shadowship.integrations import agentia
 from shadowship.integrations.llm import LLM
@@ -49,7 +49,7 @@ def _version_callback(value: bool) -> None:
 def main(
     version: bool = typer.Option(False, "--version", callback=_version_callback, is_eager=True, help="Show version."),
 ) -> None:
-    pass
+    load_env_file()
 
 
 @app.command()

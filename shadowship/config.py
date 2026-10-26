@@ -10,9 +10,12 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+import os
+
 import yaml
 
 DEFAULT_CONFIG_PATH = Path("shadowship.yaml")
+DEFAULT_ENV_PATH = Path(".env")
 
 
 class ConfigError(ValueError):
@@ -116,3 +119,25 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> Config:
 def default_config_yaml() -> str:
     """Default config rendered as YAML, used by `shadowship init`."""
     return yaml.safe_dump(Config().to_dict(), sort_keys=False)
+
+
+def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> list[str]:
+    """Load `KEY=value` lines from `path` into the environment, e.g. ANTHROPIC_API_KEY.
+
+    Variables already set in the shell win. Blank values are skipped so an untouched copy of
+    .env.example changes nothing. Returns the names that were set.
+    """
+    path = Path(path)
+    if not path.exists():
+        return []
+    loaded = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.removeprefix("export ").split("=", 1)
+        key, value = key.strip(), value.strip().strip("'\"")
+        if value and key not in os.environ:
+            os.environ[key] = value
+            loaded.append(key)
+    return loaded
