@@ -59,7 +59,9 @@ Four agents, each a small readable module in `shadowship/agents/`:
 ### Rule-based first, AI when available
 
 Every LLM step has a rule-based fallback, so ShadowShip works with no API key at all. With
-`ANTHROPIC_API_KEY` set (or an `ant auth login` profile), Claude adds:
+`ANTHROPIC_API_KEY` set (or an `ant auth login` profile), Claude adds the steps below. The easiest
+way to set the key is `cp .env.example .env` and paste it in; ShadowShip loads `.env` on every run
+and git ignores it.
 
 - **Intent:** a summary of what the change means to do, plus the behavior changes it intends.
 - **Classification:** refines the labels using that intent. Server errors always stay regressions.
