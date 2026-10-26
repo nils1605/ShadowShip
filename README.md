@@ -157,6 +157,11 @@ agentia cicd work submit --done                       # rehearse, then promote i
 
 Set `SHADOWSHIP_BASE` to rehearse against a branch other than `main`.
 
+The **Agent Skill** `.agents/skills/shadowship-rehearsal/SKILL.md` (linked into `.claude/skills` and
+`.cursor/skills`) teaches the AI agent in the IDE to rehearse before it submits, explain a BLOCK
+verdict from the report, and never bypass the gate unless asked. It uses the same format as the skills
+`agentia setup skills create` installs.
+
 When the CLI has a Copado CICD API key, ShadowShip also uses it directly (`agentia` section of
 `shadowship.yaml`):
 
